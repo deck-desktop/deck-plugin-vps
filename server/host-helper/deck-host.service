@@ -1,0 +1,12 @@
+[Unit]
+Description=Deck host helper (VPS status/control for the backend, localhost:8899)
+After=docker.service
+
+[Service]
+Type=simple
+ExecStart=/opt/deck-brain-config/deck-host-helper
+Restart=on-failure
+RestartSec=3
+
+[Install]
+WantedBy=default.target

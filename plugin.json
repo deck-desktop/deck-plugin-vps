@@ -1,0 +1,8 @@
+{
+  "id": "vps",
+  "name": "VPS",
+  "description": "Host stats and container control for your own server, through a small service you deploy to it.",
+  "icon": "Server",
+  "version": "1.0.0",
+  "minDeck": "0.15.0"
+}

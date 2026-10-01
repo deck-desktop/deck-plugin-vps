@@ -1,0 +1,23 @@
+# Deck backend. Joins the external `edge` network; Caddy is the only ingress (no published
+# ports). Secrets/volumes live under /opt/deck-config (the <svc>-config convention).
+#
+# DECK_INSTANCE names the deployment, so a dev stack can sit beside the prod one on the same host
+# with its own container, config dir, token and hostname. Unset = "deck", the production stack.
+# install.sh writes it into .env; nothing else needs to know.
+services:
+  backend:
+    build: .
+    container_name: ${DECK_INSTANCE:-deck}-backend
+    restart: unless-stopped
+    env_file: /opt/${DECK_INSTANCE:-deck}-config/.env
+    environment:
+      # The host helper listens on 0.0.0.0:8899; reach it via the edge network's gateway (the
+      # backend is only on `edge`, so host.docker.internal/default-bridge isn't routable). The
+      # gateway address comes from .env because it is whatever Docker assigned `edge` on this
+      # host — 172.18.0.1 here is the common case, not a guarantee. install.sh reads the real one.
+      VPS_HELPER_URL: ${VPS_HELPER_URL:-http://172.18.0.1:8899}
+    networks: [edge]
+
+networks:
+  edge:
+    external: true

@@ -1,0 +1,20 @@
+[package]
+name = "deck-backend"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+axum = "0.7"
+tokio = { version = "1", features = ["rt-multi-thread", "macros"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "json"] }
+# CORS so the Tauri desktop webview (origin tauri://localhost) can fetch the VPS endpoints.
+# Auth is the real gate (bearer), so allow-any-origin is fine.
+tower-http = { version = "0.6", features = ["cors"] }
+
+[profile.release]
+strip = true
+opt-level = "z"
+lto = true
+codegen-units = 1
