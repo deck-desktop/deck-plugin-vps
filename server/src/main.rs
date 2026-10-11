@@ -12,8 +12,8 @@
 //
 // This used to also carry a phone relay (/desk/*), remote triggers (/trigger) and FCM push
 // (/notify). All three went with the phone app — see docs/vps-plugin-plan.md. The VPS-target
-// scheduler is untouched by that: it never went through here, reading its job list straight
-// from the synced vault instead (host/deck-vps-scheduler.sh).
+// scheduler is untouched by that: it never went through here. Deck pushes its job list to
+// ~/deck/ on the server over SSH (plugins/script-runner/vps/).
 
 use std::sync::Arc;
 

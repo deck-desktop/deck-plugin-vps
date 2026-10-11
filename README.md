@@ -64,9 +64,8 @@ trigger unit an install from before the phone app was dropped will still have.
 - **Requests go through `httpSend`**, Deck's Rust HTTP client, rather than the webview's fetch.
   The backend does send CORS headers so fetch would work, but this brings the size cap and
   timeout http.rs already implements, and does not depend on `csp: null` staying null.
-- **Settings are device-local.** They live in `plugin-vps`, and `config.rs` keeps `plugin-`
-  prefixed config out of the synced vault — which matters, because one of the two fields is a
-  bearer token.
+- **Settings stay on this machine.** They live in `plugin-vps` in Deck's config dir, and a
+  backup leaves the bearer token out (one of the two fields), keeping only the URL.
 - **`server/` is never bundled.** Deck seeds only `plugin.json`, `plugin.js` and `mcp.js` into
   `%APPDATA%\Deck\plugins`, so the Rust source stays in the repo where the deploy steps expect it.
 

@@ -21,8 +21,9 @@ A phone relay (`/desk/*`), remote triggers (`/trigger`) and FCM push (`/notify`)
 went with the Deck mobile app. See `docs/vps-plugin-plan.md` in the repo root.
 
 **Server-side Script Runner jobs are unaffected** — they never went through this service, and
-they no longer live here either. See `plugins/script-runner/vps/`: a systemd timer reads the
-job list straight from the synced vault, with no API in the path. The two share a server and
+they no longer live here either. See `plugins/script-runner/vps/`: Deck pushes the job list to
+`~/deck/` on the server over SSH, and a systemd timer reads it from there, with no API in the
+path. The two share a server and
 nothing else.
 
 ## Layout
