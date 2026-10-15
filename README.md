@@ -41,7 +41,7 @@ local `target/` of build output.
 
 `install.sh` is idempotent, so re-running it repairs a half-finished install rather than
 starting over, and it never regenerates an existing token. It prints the bearer token at the
-end — paste that and the URL into Settings > Plugins > VPS.
+end — paste that and the URL into the VPS plugin's settings (its gear in Plugins › Installed).
 
 A **second stack** beside the first, for testing, is the same commands with a different name
 and hostname — nothing is shared between them:
