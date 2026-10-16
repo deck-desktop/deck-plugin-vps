@@ -56,7 +56,7 @@ export async function load(): Promise<void> {
 export async function update(patch: Partial<VpsSettings>): Promise<void> {
   settings = { ...settings, ...patch };
   emit();
-  await configWrite(CFG, JSON.stringify(settings, null, 2)).catch(() => {});
+  await configWrite(CFG, JSON.stringify(settings, null, 2)).catch((e) => console.warn("[vps] settings save failed", e));
 }
 
 /**
