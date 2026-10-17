@@ -17,22 +17,26 @@ const here = dirname(fileURLToPath(import.meta.url));
 const out = await build({
   entryPoints: [join(here, "src/api.ts")],
   bundle: true, write: false, format: "esm", platform: "node",
-  // api.ts imports the bridge shim, which only exists inside Deck. None of it is reached by
-  // deployTarget, so a stub with the right named exports is enough to let the module load.
+  // api.ts imports the bridge and ui shims, which only exist inside Deck. deployTarget reaches
+  // none of it, so a stub with the right named exports lets the module load; the notification
+  // calls are recorded, for the container watch below.
   plugins: [{
     name: "shim",
     setup(b) {
-      b.onResolve({ filter: /shim\/bridge\.js$/ }, (a) => ({ path: a.path, namespace: "shim" }));
+      b.onResolve({ filter: /shim\/(bridge|ui)\.js$/ }, (a) => ({ path: a.path, namespace: "shim" }));
       b.onLoad({ filter: /.*/, namespace: "shim" }, () => ({
         contents: "export const configRead = async () => '';" +
                   "export const configWrite = async () => {};" +
-                  "export const httpSend = async () => ({});",
+                  "export const httpSend = async () => ({});" +
+                  "export const notify = (n) => globalThis.__posted.push(['notify', n.key, n.title]);" +
+                  "export const dismissNotification = (s, k) => globalThis.__posted.push(['dismiss', k]);",
         loader: "js",
       }));
     },
   }],
 });
-const { deployTarget } = await import(
+globalThis.__posted = [];
+const { deployTarget, watchContainers } = await import(
   "data:text/javascript;base64," + Buffer.from(out.outputFiles[0].text).toString("base64")
 );
 
@@ -69,5 +73,20 @@ eq("  HTTPS://Deck-Dev.Example.COM  ", "deck-dev.example.com", "deck-dev");
 
 // A port belongs to the URL, not to the name Caddy serves or the stack installs under.
 eq("https://deck-dev.example.com:8080", "deck-dev.example.com", "deck-dev");
+
+// ---- watchContainers: running to down is one notification, up again takes it down ----------
+const status = (...cs) => JSON.stringify({ host: {}, containers: cs.map(([name, state, s]) => ({ name, state, status: s })) });
+const posted = () => globalThis.__posted.splice(0);
+// The first read is the baseline: a container already stopped there is not news.
+watchContainers(status(["web", "running", "Up 2 hours"], ["old", "exited", "Exited (0) 3 days ago"]));
+assert.deepStrictEqual(posted(), [], "nothing for the baseline");
+watchContainers(status(["web", "running", "Up 2 hours (unhealthy)"], ["old", "exited", "Exited (0) 3 days ago"]));
+assert.deepStrictEqual(posted(), [["notify", "down:web", "web is down"]], "unhealthy counts as down");
+watchContainers(status(["web", "exited", "Exited (1) 1 second ago"]));
+assert.deepStrictEqual(posted(), [], "still down is not posted again");
+watchContainers(status(["web", "running", "Up 1 second (health: starting)"]));
+assert.deepStrictEqual(posted(), [["dismiss", "down:web"]], "running again takes it down");
+assert.throws(() => watchContainers("not json"), "an unreadable reply throws, for vpsStatus to log");
+assert.deepStrictEqual(posted(), [], "and changes nothing");
 
 console.log("vps.check.mjs: ok");

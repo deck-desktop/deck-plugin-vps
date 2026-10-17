@@ -9,8 +9,10 @@
 // backend is reached through something that does not, and httpSend brings the size cap and
 // timeout that http.rs already implements.
 import { configRead, configWrite, httpSend } from "../shim/bridge.js";
+import { notify, dismissNotification } from "../shim/ui.js";
 
 const CFG = "plugin-vps";
+const SOURCE = "VPS";
 
 export interface VpsSettings {
   /** The backend's base URL, e.g. https://deck.example.com. "" means not configured. */
@@ -109,7 +111,42 @@ async function call(
 }
 
 /** Host stats + the container list, as raw JSON (the caller parses and caches it). */
-export const vpsStatus = () => call("GET", "/status");
+// The watch is a side effect: whatever goes wrong in it is logged, never a failed status call.
+export const vpsStatus = () => call("GET", "/status").then((raw) => {
+  try { watchContainers(raw); } catch (e) { console.warn("[vps] container watch failed", e); }
+  return raw;
+});
+
+// Containers seen up on the last status read, by name; null until the first read, which is the
+// baseline. Memory only. `announced` is the ones whose going down was posted.
+let up: Set<string> | null = null;
+const announced = new Set<string>();
+
+/** Health shows only in the status text ("Up 3 days (unhealthy)"), not in `state`. */
+const isUp = (c: VpsContainer) => c.state === "running" && !c.status.includes("(unhealthy)");
+
+/**
+ * A container that was up and is not any more is a notification; up again takes it down.
+ *
+ * Fed by every status read, so it runs wherever one does: the footer readout's minute poll in
+ * the background, the panel's 5s poll while it is open. A container first seen stopped is not
+ * news, and one that vanishes from the list is not reported, since nothing says why it went.
+ */
+export function watchContainers(raw: string) {
+  const cs: VpsContainer[] = (JSON.parse(raw) as VpsStatus).containers ?? [];
+  const now = new Set(cs.filter(isUp).map((c) => c.name));
+  if (up) {
+    for (const c of cs) {
+      if (now.has(c.name)) {
+        if (announced.delete(c.name)) dismissNotification(SOURCE, `down:${c.name}`);
+      } else if (up.has(c.name)) {
+        announced.add(c.name);
+        notify({ kind: "error", source: SOURCE, key: `down:${c.name}`, title: `${c.name} is down`, body: c.status || c.state });
+      }
+    }
+  }
+  up = now;
+}
 
 export const vpsAction = (name: string, action: "start" | "stop" | "restart") =>
   call("POST", "/action", JSON.stringify({ name, action })).then(() => undefined);
