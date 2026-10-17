@@ -11,7 +11,7 @@
 import { useEffect, useState, useSyncExternalStore } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import { Server, X } from "lucide-react";
-import { Field, TextInput } from "../shim/ui.js";
+import { Field, TextInput, StatusItem } from "../shim/ui.js";
 import VpsPanel from "./Panel";
 import { configured, deployTarget, get, getVersion, load, subscribe, update, vpsStatus } from "./api";
 
@@ -40,17 +40,16 @@ export function Status() {
 
   return (
     <>
-      <button
-        onClick={() => setOpen(true)}
+      <StatusItem
+        icon={<Server />}
+        color={ok ? "#4ad08f" : "var(--text-muted)"}
+        // The host rather than a fixed "vps", so a second stack (deck-dev.…) is told apart.
+        label={on ? deployTarget(get().url).host : "vps"}
         title={on
           ? (ok ? "VPS is responding\n\nOpen the VPS panel" : "VPS unreachable\n\nOpen the VPS panel")
           : "VPS not configured\n\nOpen the VPS panel"}
-        className="flex items-center gap-1 whitespace-nowrap rounded px-1.5 py-1 transition-colors hover:bg-white/10"
-        style={{ color: ok ? "#3fb950" : "var(--text-muted)" }}
-      >
-        <Server size={10} />
-        vps
-      </button>
+        onClick={() => setOpen(true)}
+      />
       <VpsOverlay open={open} onClose={() => setOpen(false)} />
     </>
   );
