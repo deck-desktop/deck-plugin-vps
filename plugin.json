@@ -4,6 +4,6 @@
   "description": "Host stats and container control for your own server, through a small service you deploy to it.",
   "icon": "Server",
   "color": "#94a3b8",
-  "version": "1.0.3",
-  "minDeck": "1.5.0"
+  "version": "1.1.0",
+  "minDeck": "1.6.0"
 }
