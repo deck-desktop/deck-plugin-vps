@@ -42,7 +42,7 @@ export function Status() {
     <>
       <StatusItem
         icon={<Server />}
-        color={ok ? "#4ad08f" : "var(--text-muted)"}
+        color={ok ? "rgb(var(--tone-green-400))" : "var(--text-muted)"}
         // The host rather than a fixed "vps", so a second stack (deck-dev.…) is told apart.
         label={on ? deployTarget(get().url).host : "vps"}
         title={on
@@ -105,7 +105,8 @@ function VpsOverlay({ open, onClose }: { open: boolean; onClose: () => void }) {
           <motion.div
             // A fixed height rather than sizing to content: the panel's own root is h-full with
             // its own scrolling container list, so it needs a parent with a height to fill.
-            className="glass relative flex h-[min(52rem,100%)] w-[min(80rem,94vw)] flex-col overflow-hidden rounded-2xl"
+            className="relative flex h-[min(52rem,100%)] w-[min(80rem,94vw)] flex-col overflow-hidden rounded-[10px] border border-subtle shadow-2xl"
+            style={{ background: "var(--bg-card)" }}
             initial={{ scale: 0.96, opacity: 0, y: 10 }}
             animate={{ scale: 1, opacity: 1, y: 0 }}
             exit={{ scale: 0.97, opacity: 0, y: 6 }}
@@ -113,7 +114,7 @@ function VpsOverlay({ open, onClose }: { open: boolean; onClose: () => void }) {
             onClick={(e) => e.stopPropagation()}
           >
             <button onClick={close} title="Close (Esc)"
-              className="absolute right-4 top-4 z-10 rounded-md p-1.5 text-text-muted transition hover:bg-white/5 hover:text-text-primary">
+              className="absolute right-4 top-4 z-10 grid size-7 place-items-center rounded-lg text-text-muted transition-colors hover:bg-white/5 hover:text-text-primary">
               <X size={15} />
             </button>
             <div className="min-h-0 flex-1 p-6">
@@ -158,7 +159,7 @@ export function Settings() {
 
       <div className="rounded-lg border border-subtle p-3 text-[12px] leading-relaxed text-text-secondary"
         style={{ background: "var(--bg-elev)" }}>
-        <div className="mb-1.5 font-semibold text-text-primary">Standing up the backend</div>
+        <div className="mb-1.5 text-[12px] font-medium text-text-primary">Standing up the backend</div>
         <p className="mb-2 text-text-muted">
           This plugin talks to a small service you run on your own VPS. Its source ships with the
           plugin, under <span className="font-mono">plugins/vps/server/</span> in the Deck repo.
@@ -166,8 +167,8 @@ export function Settings() {
             ? <> These are written for <span className="font-mono">{host}</span> — the URL above.</>
             : <> Fill in the URL above and these will name your own host.</>}
         </p>
-        <pre className="scroll-thin overflow-x-auto rounded p-2 text-[11px] text-text-secondary"
-          style={{ background: "var(--bg-card)", fontFamily: "var(--font-mono)" }}>
+        <pre className="scroll-thin overflow-x-auto rounded-md border border-subtle p-2 font-mono text-[11px] text-text-secondary"
+          style={{ background: "var(--bg-app)" }}>
 {`cd <your Deck checkout>/plugins/vps/server
 ssh vps 'mkdir -p ${stack}'
 scp -r Cargo.toml Cargo.lock Dockerfile docker-compose.yml \\
