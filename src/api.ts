@@ -22,9 +22,17 @@ export interface VpsSettings {
   token: string;
   /** The homelab's SSH host, an alias from ~/.ssh/config such as "homelab". "" means none. */
   homelab: string;
+  /** Each footer readout: shown or not, and its text ("" = the host's own name). */
+  showVps: boolean;
+  vpsLabel: string;
+  showHomelab: boolean;
+  homelabLabel: string;
 }
 
-export const DEFAULTS: VpsSettings = { url: "", token: "", homelab: "" };
+export const DEFAULTS: VpsSettings = {
+  url: "", token: "", homelab: "",
+  showVps: true, vpsLabel: "", showHomelab: true, homelabLabel: "",
+};
 
 let settings: VpsSettings = { ...DEFAULTS };
 let loaded = false;
@@ -49,10 +57,13 @@ export async function load(): Promise<void> {
       // Field by field rather than a blind spread: a hand-edited file should not be able to put
       // a number where a string belongs and fail somewhere far from the cause.
       const raw = JSON.parse(t) as Partial<VpsSettings>;
+      const str = (k: "url" | "token" | "homelab" | "vpsLabel" | "homelabLabel") =>
+        typeof raw[k] === "string" ? raw[k] : DEFAULTS[k];
+      const bool = (k: "showVps" | "showHomelab") => typeof raw[k] === "boolean" ? raw[k] : DEFAULTS[k];
       settings = {
-        url: typeof raw.url === "string" ? raw.url : DEFAULTS.url,
-        token: typeof raw.token === "string" ? raw.token : DEFAULTS.token,
-        homelab: typeof raw.homelab === "string" ? raw.homelab : DEFAULTS.homelab,
+        url: str("url"), token: str("token"), homelab: str("homelab"),
+        showVps: bool("showVps"), vpsLabel: str("vpsLabel"),
+        showHomelab: bool("showHomelab"), homelabLabel: str("homelabLabel"),
       };
     }
   } catch { /* a corrupt file is not worth failing the readout for */ }

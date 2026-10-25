@@ -16,7 +16,7 @@ import { useEffect, useState, useSyncExternalStore } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import { Server, X } from "lucide-react";
 import { sshHosts } from "../shim/bridge.js";
-import { Field, TextInput, StatusItem } from "../shim/ui.js";
+import { Field, Row, TextInput, StatusItem } from "../shim/ui.js";
 import ServersPanel, { type SourceId } from "./Panel";
 import { configured, deployTarget, get, getVersion, load, subscribe, update, vpsStatus } from "./api";
 import { homelabStatus } from "./homelab";
@@ -43,36 +43,43 @@ function useUp(on: boolean, status: () => Promise<unknown>) {
   return ok;
 }
 
-/** The footer readouts: a dot for reachable, and a click to open the panel on that host. */
+/**
+ * The footer readouts: a dot for reachable, and a click to open the panel on that host.
+ *
+ * A readout switched off in Settings still polls: the container and power notifications are fed
+ * from these polls, and noticing those while nobody is looking is their job.
+ */
 export function Status() {
   useSyncExternalStore(subscribe, getVersion);
   const [open, setOpen] = useState<SourceId | null>(null);
+  const s = get();
   const on = configured();
-  const homelab = get().homelab;
   const ok = useUp(on, vpsStatus);
-  const labOk = useUp(Boolean(homelab), homelabStatus);
+  const labOk = useUp(Boolean(s.homelab), homelabStatus);
 
   return (
     <>
-      {homelab && (
+      {s.homelab && s.showHomelab && (
         <StatusItem
           icon={<Server />}
           color={labOk ? "rgb(var(--tone-green-400))" : "var(--text-muted)"}
-          label={homelab}
+          label={s.homelabLabel || s.homelab}
           title={labOk ? "Homelab is responding\n\nOpen the Servers panel" : "Homelab unreachable over SSH\n\nOpen the Servers panel"}
           onClick={() => setOpen("homelab")}
         />
       )}
-      <StatusItem
-        icon={<Server />}
-        color={ok ? "rgb(var(--tone-green-400))" : "var(--text-muted)"}
-        // The host rather than a fixed "vps", so a second stack (deck-dev.…) is told apart.
-        label={on ? deployTarget(get().url).host : "vps"}
-        title={on
-          ? (ok ? "VPS is responding\n\nOpen the Servers panel" : "VPS unreachable\n\nOpen the Servers panel")
-          : "VPS not configured\n\nOpen the Servers panel"}
-        onClick={() => setOpen("vps")}
-      />
+      {s.showVps && (
+        <StatusItem
+          icon={<Server />}
+          color={ok ? "rgb(var(--tone-green-400))" : "var(--text-muted)"}
+          // The host rather than a fixed "vps", so a second stack (deck-dev.…) is told apart.
+          label={s.vpsLabel || (on ? deployTarget(s.url).host : "vps")}
+          title={on
+            ? (ok ? "VPS is responding\n\nOpen the Servers panel" : "VPS unreachable\n\nOpen the Servers panel")
+            : "VPS not configured\n\nOpen the Servers panel"}
+          onClick={() => setOpen("vps")}
+        />
+      )}
       <VpsOverlay open={open} onClose={() => setOpen(null)} />
     </>
   );
@@ -174,6 +181,28 @@ export function Settings() {
         />
         <datalist id="vps-ssh-hosts">{hosts.map((h) => <option key={h} value={h} />)}</datalist>
       </Field>
+
+      {/* Labels are not trimmed as they are typed: that would eat the space before a second word. */}
+      <Row title="VPS in the footer" desc="The readout with the VPS's dot. Its notifications keep working when hidden."
+        on={s.showVps} onChange={(v) => void update({ showVps: v })} />
+      {s.showVps && (
+        <Field label="VPS footer label" hint="Empty shows the host from the Backend URL.">
+          <TextInput value={s.vpsLabel} onChange={(e) => void update({ vpsLabel: e.target.value })}
+            placeholder={s.url ? host : "vps"} />
+        </Field>
+      )}
+      {s.homelab && (
+        <>
+          <Row title="Homelab in the footer" desc="The readout with the homelab's dot. Its notifications keep working when hidden."
+            on={s.showHomelab} onChange={(v) => void update({ showHomelab: v })} />
+          {s.showHomelab && (
+            <Field label="Homelab footer label" hint="Empty shows the SSH host.">
+              <TextInput value={s.homelabLabel} onChange={(e) => void update({ homelabLabel: e.target.value })}
+                placeholder={s.homelab} />
+            </Field>
+          )}
+        </>
+      )}
 
       <Field label="Backend URL" hint="Where the service below is reachable, e.g. https://deck.example.com.">
         <TextInput
