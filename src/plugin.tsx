@@ -43,6 +43,9 @@ function useUp(on: boolean, status: () => Promise<unknown>) {
   return ok;
 }
 
+/** A readout's colour while its host answers, unless Settings gives it another. */
+const UP = "rgb(var(--tone-green-400))";
+
 /**
  * The footer readouts: a dot for reachable, and a click to open the panel on that host.
  *
@@ -62,8 +65,8 @@ export function Status() {
       {s.homelab && s.showHomelab && (
         <StatusItem
           icon={<Server />}
-          color={labOk ? "rgb(var(--tone-green-400))" : "var(--text-muted)"}
-          label={s.homelabLabel || s.homelab}
+          color={labOk ? s.homelabColor || UP : "var(--text-muted)"}
+          label={s.homelabIconOnly ? "" : s.homelabLabel || s.homelab}
           title={labOk ? "Homelab is responding\n\nOpen the Servers panel" : "Homelab unreachable over SSH\n\nOpen the Servers panel"}
           onClick={() => setOpen("homelab")}
         />
@@ -71,9 +74,9 @@ export function Status() {
       {s.showVps && (
         <StatusItem
           icon={<Server />}
-          color={ok ? "rgb(var(--tone-green-400))" : "var(--text-muted)"}
+          color={ok ? s.vpsColor || UP : "var(--text-muted)"}
           // The host rather than a fixed "vps", so a second stack (deck-dev.…) is told apart.
-          label={s.vpsLabel || (on ? deployTarget(s.url).host : "vps")}
+          label={s.vpsIconOnly ? "" : s.vpsLabel || (on ? deployTarget(s.url).host : "vps")}
           title={on
             ? (ok ? "VPS is responding\n\nOpen the Servers panel" : "VPS unreachable\n\nOpen the Servers panel")
             : "VPS not configured\n\nOpen the Servers panel"}
@@ -157,6 +160,52 @@ function VpsOverlay({ open, onClose }: { open: SourceId | null; onClose: () => v
   );
 }
 
+/** Deck's green as the colour picker's starting value; the input takes only #rrggbb. */
+const PICKER_GREEN = "#4ade80";
+
+/** One footer readout's settings: shown, its label or the icon alone, and its colour. */
+function FooterOptions({ which, name, fallback, hint }: {
+  which: SourceId; name: string; fallback: string; hint: string;
+}) {
+  const s = get();
+  const k = which === "vps"
+    ? { show: "showVps", label: "vpsLabel", icon: "vpsIconOnly", color: "vpsColor" } as const
+    : { show: "showHomelab", label: "homelabLabel", icon: "homelabIconOnly", color: "homelabColor" } as const;
+  return (
+    <>
+      <Row title={`${name} in the footer`} desc={`The readout with the ${name}'s dot. Its notifications keep working when hidden.`}
+        on={s[k.show]} onChange={(v) => void update({ [k.show]: v })} />
+      {s[k.show] && (
+        <>
+          <Row title={`${name}: icon only`} desc="Just the icon, without a label."
+            on={s[k.icon]} onChange={(v) => void update({ [k.icon]: v })} />
+          {!s[k.icon] && (
+            <Field label={`${name} footer label`} hint={hint}>
+              {/* Not trimmed as it is typed: that would eat the space before a second word. */}
+              <TextInput value={s[k.label]} onChange={(e) => void update({ [k.label]: e.target.value })}
+                placeholder={fallback} />
+            </Field>
+          )}
+          <Field label={`${name} colour`} hint="While it is reachable. Unreachable is always grey.">
+            <div className="flex items-center gap-2">
+              <input type="color" value={s[k.color] || PICKER_GREEN}
+                onChange={(e) => void update({ [k.color]: e.target.value })}
+                className="h-7 w-10 cursor-pointer rounded border border-subtle bg-transparent p-0.5" />
+              <span className="font-mono text-[11.5px] text-text-muted">{s[k.color] || "Deck's green"}</span>
+              {s[k.color] && (
+                <button onClick={() => void update({ [k.color]: "" })}
+                  className="h-7 rounded-lg px-2 text-[12px] text-text-muted transition-colors hover:bg-white/5 hover:text-text-primary">
+                  Reset
+                </button>
+              )}
+            </div>
+          </Field>
+        </>
+      )}
+    </>
+  );
+}
+
 /** The settings panel, rendered inside this plugin's own row in Settings > Plugins. */
 export function Settings() {
   useSyncExternalStore(subscribe, getVersion);
@@ -182,27 +231,8 @@ export function Settings() {
         <datalist id="vps-ssh-hosts">{hosts.map((h) => <option key={h} value={h} />)}</datalist>
       </Field>
 
-      {/* Labels are not trimmed as they are typed: that would eat the space before a second word. */}
-      <Row title="VPS in the footer" desc="The readout with the VPS's dot. Its notifications keep working when hidden."
-        on={s.showVps} onChange={(v) => void update({ showVps: v })} />
-      {s.showVps && (
-        <Field label="VPS footer label" hint="Empty shows the host from the Backend URL.">
-          <TextInput value={s.vpsLabel} onChange={(e) => void update({ vpsLabel: e.target.value })}
-            placeholder={s.url ? host : "vps"} />
-        </Field>
-      )}
-      {s.homelab && (
-        <>
-          <Row title="Homelab in the footer" desc="The readout with the homelab's dot. Its notifications keep working when hidden."
-            on={s.showHomelab} onChange={(v) => void update({ showHomelab: v })} />
-          {s.showHomelab && (
-            <Field label="Homelab footer label" hint="Empty shows the SSH host.">
-              <TextInput value={s.homelabLabel} onChange={(e) => void update({ homelabLabel: e.target.value })}
-                placeholder={s.homelab} />
-            </Field>
-          )}
-        </>
-      )}
+      <FooterOptions which="vps" name="VPS" fallback={s.url ? host : "vps"} hint="Empty shows the host from the Backend URL." />
+      {s.homelab && <FooterOptions which="homelab" name="Homelab" fallback={s.homelab} hint="Empty shows the SSH host." />}
 
       <Field label="Backend URL" hint="Where the service below is reachable, e.g. https://deck.example.com.">
         <TextInput

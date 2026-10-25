@@ -22,16 +22,24 @@ export interface VpsSettings {
   token: string;
   /** The homelab's SSH host, an alias from ~/.ssh/config such as "homelab". "" means none. */
   homelab: string;
-  /** Each footer readout: shown or not, and its text ("" = the host's own name). */
+  /**
+   * Each footer readout: shown or not, its text ("" = the host's own name), the icon alone, and
+   * its colour while reachable as a CSS colour ("" = Deck's green; unreachable is always grey).
+   */
   showVps: boolean;
   vpsLabel: string;
+  vpsIconOnly: boolean;
+  vpsColor: string;
   showHomelab: boolean;
   homelabLabel: string;
+  homelabIconOnly: boolean;
+  homelabColor: string;
 }
 
 export const DEFAULTS: VpsSettings = {
   url: "", token: "", homelab: "",
-  showVps: true, vpsLabel: "", showHomelab: true, homelabLabel: "",
+  showVps: true, vpsLabel: "", vpsIconOnly: false, vpsColor: "",
+  showHomelab: true, homelabLabel: "", homelabIconOnly: false, homelabColor: "",
 };
 
 let settings: VpsSettings = { ...DEFAULTS };
@@ -57,23 +65,32 @@ export async function load(): Promise<void> {
       // Field by field rather than a blind spread: a hand-edited file should not be able to put
       // a number where a string belongs and fail somewhere far from the cause.
       const raw = JSON.parse(t) as Partial<VpsSettings>;
-      const str = (k: "url" | "token" | "homelab" | "vpsLabel" | "homelabLabel") =>
-        typeof raw[k] === "string" ? raw[k] : DEFAULTS[k];
-      const bool = (k: "showVps" | "showHomelab") => typeof raw[k] === "boolean" ? raw[k] : DEFAULTS[k];
-      settings = {
-        url: str("url"), token: str("token"), homelab: str("homelab"),
-        showVps: bool("showVps"), vpsLabel: str("vpsLabel"),
-        showHomelab: bool("showHomelab"), homelabLabel: str("homelabLabel"),
-      };
+      settings = { ...DEFAULTS };
+      for (const k of Object.keys(DEFAULTS) as (keyof VpsSettings)[]) {
+        if (typeof raw[k] === typeof DEFAULTS[k]) (settings as any)[k] = raw[k];
+      }
     }
   } catch { /* a corrupt file is not worth failing the readout for */ }
+  saved = JSON.stringify(settings, null, 2);
   emit();
 }
 
-export async function update(patch: Partial<VpsSettings>): Promise<void> {
+// The last text written, and the pending write. Every keystroke in a label and every step of a
+// colour drag lands here, and each write wakes Deck's config listeners, so the save waits for a
+// pause and is skipped when nothing changed.
+let saved = "";
+let saveTimer: ReturnType<typeof setTimeout> | undefined;
+
+export function update(patch: Partial<VpsSettings>): void {
   settings = { ...settings, ...patch };
   emit();
-  await configWrite(CFG, JSON.stringify(settings, null, 2)).catch((e) => console.warn("[vps] settings save failed", e));
+  clearTimeout(saveTimer);
+  saveTimer = setTimeout(() => {
+    const text = JSON.stringify(settings, null, 2);
+    if (text === saved) return;
+    saved = text;
+    configWrite(CFG, text).catch((e) => console.warn("[vps] settings save failed", e));
+  }, 400);
 }
 
 /**
