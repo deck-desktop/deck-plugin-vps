@@ -1,4 +1,5 @@
-// The VPS plugin's settings, and the three calls it makes against them.
+// The Servers plugin's settings, and the three calls it makes against the VPS backend. The
+// homelab, reached over SSH rather than through a backend, is in homelab.ts.
 //
 // At module scope rather than in a component, for the reason Deck's CLAUDE.md gives: the footer
 // readout, the panel and the settings form are separate components that must agree on the same
@@ -19,9 +20,11 @@ export interface VpsSettings {
   url: string;
   /** The BEARER_TOKEN install.sh printed. */
   token: string;
+  /** The homelab's SSH host, an alias from ~/.ssh/config such as "homelab". "" means none. */
+  homelab: string;
 }
 
-export const DEFAULTS: VpsSettings = { url: "", token: "" };
+export const DEFAULTS: VpsSettings = { url: "", token: "", homelab: "" };
 
 let settings: VpsSettings = { ...DEFAULTS };
 let loaded = false;
@@ -49,6 +52,7 @@ export async function load(): Promise<void> {
       settings = {
         url: typeof raw.url === "string" ? raw.url : DEFAULTS.url,
         token: typeof raw.token === "string" ? raw.token : DEFAULTS.token,
+        homelab: typeof raw.homelab === "string" ? raw.homelab : DEFAULTS.homelab,
       };
     }
   } catch { /* a corrupt file is not worth failing the readout for */ }
@@ -94,6 +98,19 @@ export interface VpsHost {
 export interface VpsContainer { name: string; state: string; status: string; cpu: string; mem: string; }
 export interface VpsStatus { host: VpsHost; containers: VpsContainer[]; }
 
+/** What only the homelab reports: it is a laptop on Wi-Fi, so its power and signal matter. */
+export interface HomelabExtra {
+  /** Mains connected; null when the machine has no mains supply to report. */
+  ac: boolean | null;
+  /** Charge in percent and the kernel's status ("Charging", "Discharging"); null with no battery. */
+  battery: { pct: number; state: string } | null;
+  /** battery-guard.timer's state, from systemctl is-active ("active", "inactive", ...). */
+  guard: string;
+  /** The wireless interface and its signal in dBm; null when it is not on Wi-Fi. */
+  wifi: { iface: string; dbm: number } | null;
+}
+export type HostStatus = VpsStatus & { extra?: HomelabExtra };
+
 /** One call to the backend. Throws with the status line on anything but 2xx. */
 async function call(
   method: string, path: string, body?: string,
@@ -110,11 +127,11 @@ async function call(
   return r.body;
 }
 
-/** Host stats + the container list, as raw JSON (the caller parses and caches it). */
+/** Host stats + the container list. */
 // The watch is a side effect: whatever goes wrong in it is logged, never a failed status call.
 export const vpsStatus = () => call("GET", "/status").then((raw) => {
   try { watchContainers(raw); } catch (e) { console.warn("[vps] container watch failed", e); }
-  return raw;
+  return JSON.parse(raw) as HostStatus;
 });
 
 // Containers seen up on the last status read, by name; null until the first read, which is the

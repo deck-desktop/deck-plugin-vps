@@ -89,4 +89,61 @@ assert.deepStrictEqual(posted(), [["dismiss", "down:web"]], "running again takes
 assert.throws(() => watchContainers("not json"), "an unreadable reply throws, for vpsStatus to log");
 assert.deepStrictEqual(posted(), [], "and changes nothing");
 
+// ---- parseProbe: the homelab's ssh probe output, as captured from the real machine ----------
+const lab = await build({
+  entryPoints: [join(here, "src/homelab.ts")],
+  bundle: true, write: false, format: "esm", platform: "node",
+  plugins: [{
+    name: "shim",
+    setup(b) {
+      b.onResolve({ filter: /shim\/(bridge|ui)\.js$/ }, (a) => ({ path: a.path, namespace: "shim" }));
+      b.onLoad({ filter: /.*/, namespace: "shim" }, () => ({
+        contents: "export const configRead = async () => '';" +
+                  "export const configWrite = async () => {};" +
+                  "export const httpSend = async () => ({});" +
+                  "export const exec = async () => ({ stdout: '', stderr: '', code: 0 });" +
+                  "export const notify = (n) => globalThis.__posted.push(['notify', n.key, n.title]);" +
+                  "export const dismissNotification = (s, k) => globalThis.__posted.push(['dismiss', k]);",
+        loader: "js",
+      }));
+    },
+  }],
+});
+const { parseProbe, watchPower, PROBE } = await import(
+  "data:text/javascript;base64," + Buffer.from(lab.outputFiles[0].text).toString("base64")
+);
+
+// It travels as one argument to ssh.exe; double quotes there are where Windows quoting goes wrong.
+assert.ok(!PROBE.includes('"'), "the probe has no double quotes");
+
+const real = [
+  "cpu=3", "nproc=8", "load=0.00 0.02 0.07", "mem=15878 675", "disk=105325 2194",
+  "uptime=up 15 minutes", "net=1904474 6811456", "wifi=wlp13s0 -54", "ac=1",
+  "battery=0 Not charging", "guard=active",
+  "c=web|running|Up 2 hours (healthy)", "c=old|exited|Exited (0) 3 days ago",
+].join("\r\n");
+assert.deepStrictEqual(parseProbe(real), {
+  host: {
+    cpu_pct: 3, nproc: 8, load: [0, 0.02, 0.07], mem_total_used: [15878, 675],
+    disk_total_used_mb: [105325, 2194], uptime: "15 minutes", net_rx_tx: [1904474, 6811456],
+  },
+  containers: [
+    { name: "web", state: "running", status: "Up 2 hours (healthy)", cpu: "—", mem: "" },
+    { name: "old", state: "exited", status: "Exited (0) 3 days ago", cpu: "—", mem: "" },
+  ],
+  extra: { ac: true, battery: { pct: 0, state: "Not charging" }, guard: "active", wifi: { iface: "wlp13s0", dbm: -54 } },
+});
+// Off Wi-Fi the probe prints an empty "wifi=", and a desktop has no ac/battery lines at all.
+const wired = parseProbe("wifi=\nguard=inactive");
+assert.deepStrictEqual(wired.extra, { ac: null, battery: null, guard: "inactive", wifi: null });
+
+// Losing mains is one notification; mains back takes it down. The first read is the baseline.
+watchPower(parseProbe("ac=0\nbattery=80 Discharging"));
+assert.deepStrictEqual(posted(), [], "on battery at the first read is not news");
+watchPower(parseProbe("ac=1"));
+watchPower(parseProbe("ac=0\nbattery=80 Discharging"));
+assert.deepStrictEqual(posted(), [["dismiss", "power"], ["notify", "power", "Homelab is on battery"]]);
+watchPower(parseProbe("ac=0\nbattery=79 Discharging"));
+assert.deepStrictEqual(posted(), [], "still on battery is not posted again");
+
 console.log("vps.check.mjs: ok");

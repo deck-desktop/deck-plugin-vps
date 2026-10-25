@@ -1,10 +1,20 @@
-# VPS
+# Servers
 
-Host stats and container control for your own server, as a footer readout and a panel.
+Host stats and container control for your own VPS and homelab, as footer readouts and a panel.
+(Its id is still `vps`, from before it covered the homelab, so existing settings carry over.)
 
-Click the `vps` readout in the footer (or run **VPS: open the panel** from the command palette)
+Click the VPS readout in the footer (or run **Servers: open the panel** from the command palette)
 to see CPU, memory, disk, uptime and network rate, plus every container with start/stop/restart
 and a log tail. Stop and restart ask first — these are production actions.
+
+## The homelab
+
+Set **Homelab SSH host** in the plugin's settings to a host from `~/.ssh/config` that logs in with
+a key (`ssh homelab` must work without a prompt). Nothing is installed on it: each refresh is one
+`ssh` running a short shell probe (`src/homelab.ts`) that prints CPU, memory, disk, uptime,
+network, Wi-Fi signal, mains and battery, the `battery-guard.timer` state, and the containers.
+The homelab gets its own footer readout, and the panel switches between it and the VPS.
+Losing mains power posts a notification, and mains coming back takes it down.
 
 ## It needs a server half
 

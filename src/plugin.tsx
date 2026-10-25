@@ -1,4 +1,4 @@
-// VPS — host stats and container control for your own server.
+// Servers — host stats and container control for your own VPS and homelab.
 //
 // A plugin with no tab: it exports `Status` and `Settings`, so it contributes a footer readout
 // and a settings panel, and nothing to the sidebar. That is deliberate and predates the move out
@@ -6,14 +6,20 @@
 // asked in the footer rather than a destination in the nav. Clicking the readout opens the panel
 // as an overlay.
 //
-// It also ships its own server: `server/` holds the Axum service these three calls reach, with
-// install.sh to stand one up. See the plugin's README.
+// It also ships its own server: `server/` holds the Axum service the VPS calls reach, with
+// install.sh to stand one up. See the plugin's README. The homelab needs nothing installed: it is
+// read over SSH (homelab.ts), and gets a footer readout of its own once its host is set.
+//
+// The id stays `vps` from before the rename to Servers, so the stored settings, the install
+// folder and the links into its settings page all keep working.
 import { useEffect, useState, useSyncExternalStore } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import { Server, X } from "lucide-react";
+import { sshHosts } from "../shim/bridge.js";
 import { Field, TextInput, StatusItem } from "../shim/ui.js";
-import VpsPanel from "./Panel";
+import ServersPanel, { type SourceId } from "./Panel";
 import { configured, deployTarget, get, getVersion, load, subscribe, update, vpsStatus } from "./api";
+import { homelabStatus } from "./homelab";
 
 // Read once at import, so the readout has its settings before its first render rather than
 // flashing "not configured" for a tick.
@@ -21,36 +27,53 @@ void load();
 
 const POLL_MS = 60000;
 
-/** The footer readout: a dot for reachable, and a click to open the panel. */
-export function Status() {
-  useSyncExternalStore(subscribe, getVersion);
-  const [open, setOpen] = useState(false);
+/**
+ * The background "is it up" check, polling only while `on`. A network round trip (an ssh for
+ * the homelab) that does not need to be frequent; the panel polls at 5s while it is open.
+ */
+function useUp(on: boolean, status: () => Promise<unknown>) {
   const [ok, setOk] = useState(false);
-  const on = configured();
-
-  // Only polls while configured. The panel polls at 5s while it is open; this is the background
-  // "is it up" check, which is a network round trip and does not need to be frequent.
   useEffect(() => {
     if (!on) { setOk(false); return; }
-    const poll = () => { vpsStatus().then(() => setOk(true)).catch(() => setOk(false)); };
+    const poll = () => { status().then(() => setOk(true)).catch(() => setOk(false)); };
     poll();
     const t = setInterval(() => { if (!document.hidden) poll(); }, POLL_MS);
     return () => clearInterval(t);
-  }, [on]);
+  }, [on, status]);
+  return ok;
+}
+
+/** The footer readouts: a dot for reachable, and a click to open the panel on that host. */
+export function Status() {
+  useSyncExternalStore(subscribe, getVersion);
+  const [open, setOpen] = useState<SourceId | null>(null);
+  const on = configured();
+  const homelab = get().homelab;
+  const ok = useUp(on, vpsStatus);
+  const labOk = useUp(Boolean(homelab), homelabStatus);
 
   return (
     <>
+      {homelab && (
+        <StatusItem
+          icon={<Server />}
+          color={labOk ? "rgb(var(--tone-green-400))" : "var(--text-muted)"}
+          label={homelab}
+          title={labOk ? "Homelab is responding\n\nOpen the Servers panel" : "Homelab unreachable over SSH\n\nOpen the Servers panel"}
+          onClick={() => setOpen("homelab")}
+        />
+      )}
       <StatusItem
         icon={<Server />}
         color={ok ? "rgb(var(--tone-green-400))" : "var(--text-muted)"}
         // The host rather than a fixed "vps", so a second stack (deck-dev.…) is told apart.
         label={on ? deployTarget(get().url).host : "vps"}
         title={on
-          ? (ok ? "VPS is responding\n\nOpen the VPS panel" : "VPS unreachable\n\nOpen the VPS panel")
-          : "VPS not configured\n\nOpen the VPS panel"}
-        onClick={() => setOpen(true)}
+          ? (ok ? "VPS is responding\n\nOpen the Servers panel" : "VPS unreachable\n\nOpen the Servers panel")
+          : "VPS not configured\n\nOpen the Servers panel"}
+        onClick={() => setOpen("vps")}
       />
-      <VpsOverlay open={open} onClose={() => setOpen(false)} />
+      <VpsOverlay open={open} onClose={() => setOpen(null)} />
     </>
   );
 }
@@ -60,7 +83,7 @@ export function commands() {
   return [
     {
       id: "open",
-      title: "VPS: open the panel",
+      title: "Servers: open the panel",
       run: () => window.dispatchEvent(new CustomEvent("deck-open-vps")),
     },
   ];
@@ -72,18 +95,18 @@ export function commands() {
  * A tab costs permanent space in the nav for something that is looked at rather than worked in.
  * Mounted only while open, so the panel's 5s poll does not run for something nobody is reading.
  */
-function VpsOverlay({ open, onClose }: { open: boolean; onClose: () => void }) {
-  const [shown, setShown] = useState(open);
+function VpsOverlay({ open, onClose }: { open: SourceId | null; onClose: () => void }) {
+  const [shown, setShown] = useState<SourceId | null>(open);
   useEffect(() => setShown(open), [open]);
 
   // The palette entry fires this rather than reaching into the readout's state.
   useEffect(() => {
-    const openIt = () => setShown(true);
+    const openIt = () => setShown("vps");
     window.addEventListener("deck-open-vps", openIt);
     return () => window.removeEventListener("deck-open-vps", openIt);
   }, []);
 
-  const close = () => { setShown(false); onClose(); };
+  const close = () => { setShown(null); onClose(); };
 
   useEffect(() => {
     if (!shown) return;
@@ -118,7 +141,7 @@ function VpsOverlay({ open, onClose }: { open: boolean; onClose: () => void }) {
               <X size={15} />
             </button>
             <div className="min-h-0 flex-1 p-6">
-              <VpsPanel />
+              <ServersPanel initial={shown} />
             </div>
           </motion.div>
         </motion.div>
@@ -137,9 +160,21 @@ export function Settings() {
   // one is silently wrong if a placeholder is left in.
   const { host, instance } = deployTarget(s.url);
   const stack = `~/stacks/${instance}`;
+  const [hosts, setHosts] = useState<string[]>([]);
+  useEffect(() => { sshHosts().then(setHosts).catch((e) => console.warn("[vps] ssh hosts failed", e)); }, []);
 
   return (
     <div className="space-y-3">
+      <Field label="Homelab SSH host" hint="A host from ~/.ssh/config with key login, e.g. homelab. It is read over SSH and nothing is installed on it. Leave empty to hide the homelab.">
+        <TextInput
+          list="vps-ssh-hosts"
+          value={s.homelab}
+          onChange={(e) => void update({ homelab: e.target.value.trim() })}
+          placeholder="homelab"
+        />
+        <datalist id="vps-ssh-hosts">{hosts.map((h) => <option key={h} value={h} />)}</datalist>
+      </Field>
+
       <Field label="Backend URL" hint="Where the service below is reachable, e.g. https://deck.example.com.">
         <TextInput
           value={s.url}
