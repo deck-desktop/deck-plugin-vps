@@ -4,6 +4,7 @@
 // GET  /status            bearer-guarded. Host stats + container list.
 // POST /action            bearer-guarded. start/stop/restart a container.
 // GET  /logs              bearer-guarded. Tail one container's log.
+// GET  /access            bearer-guarded. Caddy access log: per-site counts + recent errors, 24h.
 //
 // The container is deliberately dumb: it has no docker socket and no vault access, so every
 // one of these is proxied to the host helper (VPS_HELPER_URL), the localhost service on the
@@ -48,6 +49,7 @@ async fn main() {
         .route("/status", get(vps_status))
         .route("/action", post(vps_action))
         .route("/logs", get(vps_logs))
+        .route("/access", get(vps_access))
         // Allow the Tauri webview (and any client) to call these cross-origin; bearer is the gate.
         .layer(tower_http::cors::CorsLayer::permissive())
         .with_state(state);
@@ -114,6 +116,13 @@ async fn vps_logs(State(st): State<Arc<AppState>>, headers: HeaderMap, axum::ext
     }
     let tail = q.tail.unwrap_or(200);
     proxy_get(&format!("{}/logs?name={}&tail={}", st.vps_helper, urlencode(&q.name), tail)).await
+}
+
+async fn vps_access(State(st): State<Arc<AppState>>, headers: HeaderMap) -> impl IntoResponse {
+    if !bearer_ok(&headers, &st.bearer) {
+        return StatusCode::UNAUTHORIZED.into_response();
+    }
+    proxy_get(&format!("{}/access", st.vps_helper)).await
 }
 
 async fn proxy_get(url: &str) -> axum::response::Response {

@@ -1,18 +1,60 @@
-// The VPS panel — host stats and container control.
+// The Servers panel — host stats and container control, for the VPS and the homelab.
 //
-// Moved out of src/modules/vps/ when the VPS became a plugin; the body is unchanged apart from
-// its imports and the not-configured state below, which the module never needed because the
-// backend URL lived in Deck's own settings and the tab was hidden without one.
+// Moved out of src/modules/vps/ when the VPS became a plugin. The homelab came later and is read
+// over SSH rather than through the VPS's backend, so the panel takes a `Source`: the same stats
+// and container list either way, plus the power and Wi-Fi cards only the homelab reports.
 import { useEffect, useMemo, useRef, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import {
-  Server, Cpu, MemoryStick, HardDrive, Clock,
+  Server, Cpu, MemoryStick, HardDrive, Clock, Plug, BatteryLow, Wifi,
   Play, Square, RotateCw, FileText, X, Loader2,
 } from "lucide-react";
 import { ConfirmDialog, type ConfirmState } from "../shim/ui.js";
-import { configured, vpsStatus, vpsAction, vpsLogs, type VpsStatus, type VpsContainer } from "./api";
+import { configured, get, vpsStatus, vpsAction, vpsLogs, type HostStatus, type VpsContainer } from "./api";
+import { homelabStatus, homelabAction, homelabLogs } from "./homelab";
+import AccessCard from "./AccessCard";
 
 const POLL_MS = 5000;
+
+export type SourceId = "vps" | "homelab";
+
+/** Where a panel's numbers come from and where its actions go. */
+interface Source {
+  id: SourceId;
+  label: string;
+  /** Finishes "… runs on {where}." in the stop and restart confirmation. */
+  where: string;
+  status: () => Promise<HostStatus>;
+  action: (name: string, action: "start" | "stop" | "restart") => Promise<void>;
+  logs: (name: string) => Promise<string>;
+}
+
+const SOURCES: Record<SourceId, Source> = {
+  vps: { id: "vps", label: "VPS", where: "the production VPS", status: vpsStatus, action: vpsAction, logs: vpsLogs },
+  homelab: { id: "homelab", label: "Homelab", where: "the homelab", status: homelabStatus, action: homelabAction, logs: homelabLogs },
+};
+
+/**
+ * The panel the overlay shows: one host at a time, with a switch between them once a homelab is
+ * set. Keyed by host, so switching starts the other one's poll fresh rather than mixing the two.
+ */
+export default function ServersPanel({ initial }: { initial: SourceId }) {
+  const hasHomelab = Boolean(get().homelab);
+  const [id, setId] = useState<SourceId>(initial === "homelab" && hasHomelab ? "homelab" : "vps");
+  const tabs = hasHomelab && (
+    <div className="flex items-center gap-0.5 rounded-lg p-0.5" style={{ background: "var(--bg-elev)" }}>
+      {(["vps", "homelab"] as const).map((t) => (
+        <button key={t} onClick={() => setId(t)}
+          className={"h-6 rounded-md px-2.5 text-[12px] font-medium transition-colors " +
+            (t === id ? "text-text-primary" : "text-text-muted hover:text-text-secondary")}
+          style={t === id ? { background: "var(--bg-card)" } : undefined}>
+          {SOURCES[t].label}
+        </button>
+      ))}
+    </div>
+  );
+  return <HostPanel key={id} source={SOURCES[id]} tabs={tabs} />;
+}
 
 const GREEN = "rgb(var(--tone-green-400))";
 const RED = "rgb(var(--tone-red-400))";
@@ -57,12 +99,17 @@ function StatCard({ icon: Icon, label, value, sub, pct }: {
 }
 
 // Seed from the last-known status so the panel paints instantly instead of "Connecting…".
-function cachedStatus(): VpsStatus | null {
-  try { const t = localStorage.getItem("deck-vps-cache"); return t ? JSON.parse(t) : null; } catch { return null; }
+// "deck-vps-cache" for the VPS, the key it has always had.
+const cacheKey = (id: SourceId) => `deck-${id}-cache`;
+function cachedStatus(id: SourceId): HostStatus | null {
+  try { const t = localStorage.getItem(cacheKey(id)); return t ? JSON.parse(t) : null; } catch { return null; }
 }
 
-export default function VpsPanel() {
-  const [s, setS] = useState<VpsStatus | null>(cachedStatus);
+/** Signal strength in words, by the usual dBm bands. */
+const signal = (dbm: number) => dbm >= -60 ? "good" : dbm >= -70 ? "fair" : "weak";
+
+function HostPanel({ source, tabs }: { source: Source; tabs: React.ReactNode }) {
+  const [s, setS] = useState<HostStatus | null>(() => cachedStatus(source.id));
   const [err, setErr] = useState<string>("");
   const [busy, setBusy] = useState<Record<string, boolean>>({});
   const [confirm, setConfirm] = useState<{ name: string; action: "stop" | "restart" } | null>(null);
@@ -75,10 +122,9 @@ export default function VpsPanel() {
 
   const poll = async () => {
     try {
-      const raw = await vpsStatus();
-      const data: VpsStatus = JSON.parse(raw);
+      const data = await source.status();
       setS(data); setErr(""); setNext(POLL_MS / 1000);
-      try { localStorage.setItem("deck-vps-cache", raw); } catch { /* */ }
+      try { localStorage.setItem(cacheKey(source.id), JSON.stringify(data)); } catch { /* */ }
       const [rx, tx] = data.host.net_rx_tx;
       const now = Date.now();
       if (prevNet.current) {
@@ -104,7 +150,7 @@ export default function VpsPanel() {
 
   const doAction = async (name: string, action: "start" | "stop" | "restart") => {
     setBusy((b) => ({ ...b, [name]: true }));
-    try { await vpsAction(name, action); await poll(); }
+    try { await source.action(name, action); await poll(); }
     catch (e) { setErr(String(e)); }
     finally { setBusy((b) => ({ ...b, [name]: false })); setConfirm(null); }
   };
@@ -115,7 +161,7 @@ export default function VpsPanel() {
 
   const openLogs = async (name: string) => {
     setLogsFor(name); setLogsText("");
-    try { setLogsText(await vpsLogs(name)); } catch (e) { setLogsText(String(e)); }
+    try { setLogsText(await source.logs(name)); } catch (e) { setLogsText(String(e)); }
   };
 
   const host = s?.host;
@@ -131,7 +177,7 @@ export default function VpsPanel() {
     title: `${confirm.action === "stop" ? "Stop" : "Restart"} ${confirm.name}?`,
     body: (
       <>
-        <span className="font-mono text-text-primary">{confirm.name}</span> runs on the production VPS.
+        <span className="font-mono text-text-primary">{confirm.name}</span> runs on {source.where}.
         {confirm.name === "caddy" && " This is the reverse proxy — every site goes down."}
       </>
     ),
@@ -143,7 +189,7 @@ export default function VpsPanel() {
   // Nothing to poll without a backend. Said here rather than left as a failing request, because
   // "status 0" in the corner is not an instruction and this is the one state a fresh install
   // is guaranteed to be in.
-  if (!configured()) {
+  if (source.id === "vps" && !configured()) {
     return (
       <div className="grid h-full w-full place-items-center p-8">
         <div className="flex max-w-md items-start gap-3 rounded-lg border border-subtle px-4 py-4"
@@ -174,7 +220,8 @@ export default function VpsPanel() {
       <div className="mb-4 flex shrink-0 items-center justify-between">
         <div className="flex items-center gap-2.5">
           <Server size={16} className="text-text-muted" />
-          <h1 className="text-[15px] font-semibold text-text-primary">VPS</h1>
+          <h1 className="text-[15px] font-semibold text-text-primary">{tabs ? "Servers" : source.label}</h1>
+          {tabs}
           {err ? <Chip color={AMBER} title={err}>Reconnecting…</Chip>
                : s && <Chip color={GREEN}>Connected</Chip>}
           {!err && s && <span className="text-[11.5px] tabular-nums text-text-muted" title="next refresh">refresh {next}s</span>}
@@ -194,6 +241,21 @@ export default function VpsPanel() {
             sub={host ? `↓ ${fmtRate(rate.rx)}  ↑ ${fmtRate(rate.tx)}` : undefined} />
         </div>
 
+        {/* What only the homelab reports: it is a laptop on Wi-Fi. */}
+        {s?.extra && (
+          <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
+            <StatCard icon={s.extra.ac === false ? BatteryLow : Plug} label="Power"
+              value={s.extra.ac == null ? "—" : s.extra.ac ? "Mains" : "On battery"}
+              sub={[
+                s.extra.battery && `battery ${s.extra.battery.pct}% · ${s.extra.battery.state.toLowerCase()}`,
+                s.extra.guard && `battery guard ${s.extra.guard}`,
+              ].filter(Boolean).join(" · ")} />
+            <StatCard icon={Wifi} label="Wi-Fi"
+              value={s.extra.wifi ? `${s.extra.wifi.dbm} dBm` : "Not on Wi-Fi"}
+              sub={s.extra.wifi ? `${s.extra.wifi.iface} · ${signal(s.extra.wifi.dbm)} signal` : undefined} />
+          </div>
+        )}
+
         {/* Containers */}
         <div className="rounded-lg border border-subtle p-1.5" style={{ background: "var(--bg-card-glass)" }}>
           <div className="flex h-7 items-center gap-1.5 px-2">
@@ -203,12 +265,15 @@ export default function VpsPanel() {
                 style={{ background: "var(--bg-elev)" }}>{s.containers.length}</span>
             )}
           </div>
-          {!s && !err && <div className="flex items-center gap-2 px-2 py-6 text-[12.5px] text-text-muted"><Loader2 size={14} className="animate-spin" /> Connecting to VPS…</div>}
+          {!s && !err && <div className="flex items-center gap-2 px-2 py-6 text-[12.5px] text-text-muted"><Loader2 size={14} className="animate-spin" /> Connecting to {source.label}…</div>}
+          {s?.containers.length === 0 && <div className="px-2 py-3 text-[12.5px] text-text-muted">No containers</div>}
           <div className="space-y-px">
             {s?.containers.map((c) => <ContainerRow key={c.name} c={c} busy={!!busy[c.name]}
               onAction={onAction} onLogs={openLogs} />)}
           </div>
         </div>
+
+        {source.id === "vps" && <AccessCard />}
       </div>
 
       {/* Confirm dialog for stop/restart (production actions) */}

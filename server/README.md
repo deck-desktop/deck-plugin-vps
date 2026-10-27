@@ -10,8 +10,12 @@ no published ports.
 - `GET /status` — `Authorization: Bearer <token>`. Host stats + the container list.
 - `POST /action` — `{"name":"<container>","action":"start|stop|restart"}`.
 - `GET /logs?name=<container>&tail=200` — one container's recent log.
+- `GET /access` — Caddy's access log over the last 24h: requests, 4xx and 5xx per site, and the
+  newest 100 error requests. Requests with an `Authorization` header (Deck's own polling) are left
+  out. The helper reads the current log file through `docker exec caddy`, so right after a roll it
+  covers less than a day; `since` in the response says where the numbers start.
 
-All three are bearer-guarded proxies to the **host helper**, the localhost service that can
+All four are bearer-guarded proxies to the **host helper**, the localhost service that can
 actually run docker. The container has no docker socket, and that is deliberate: the only thing
 this process adds is the bearer check, so the helper never has to be exposed.
 
@@ -35,6 +39,7 @@ server/
   install.sh                          # first-time setup (idempotent)
   deploy.sh                           # → /opt/deck-config/deploy.sh
   host-helper/                        # the localhost docker service this proxies to
+                                      # (built on the VPS in ~/build/deck-host-helper, see below)
 ```
 
 ## VPS placement (not a git clone — rsync/scp from here)
@@ -89,3 +94,22 @@ ssh vps 'systemctl --user daemon-reload'
 
 The FCM service-account file at `/opt/deck-config/fcm-sa.json` and the `FCM_PROJECT_ID` line in
 `.env` are no longer read and can be deleted whenever convenient.
+
+## Updating the host helper
+
+The helper is a plain binary run by the `deck-host.service` user unit from
+`/opt/deck-brain-config/deck-host-helper`. There is no Rust toolchain on the VPS, so it is built
+there in a throwaway `rust:1-slim` container, from a copy of `host-helper/` kept in
+`~/build/deck-host-helper`:
+
+```sh
+scp host-helper/src/main.rs vps:build/deck-host-helper/src/main.rs
+ssh vps 'cd ~/build/deck-host-helper && docker run --rm -v "$PWD":/app -w /app rust:1-slim cargo build --release'
+ssh vps 'cd /opt/deck-brain-config && cp deck-host-helper deck-host-helper.bak \
+  && cp ~/build/deck-host-helper/target/release/deck-host-helper deck-host-helper.new \
+  && mv deck-host-helper.new deck-host-helper && systemctl --user restart deck-host.service'
+```
+
+The binary is swapped with `mv` rather than copied over, because a running executable cannot be
+overwritten in place ("Text file busy"). `cargo test` in `host-helper/` runs the access-log
+summary's tests locally.

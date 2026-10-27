@@ -1,4 +1,5 @@
-// The VPS plugin's settings, and the three calls it makes against them.
+// The Servers plugin's settings, and the three calls it makes against the VPS backend. The
+// homelab, reached over SSH rather than through a backend, is in homelab.ts.
 //
 // At module scope rather than in a component, for the reason Deck's CLAUDE.md gives: the footer
 // readout, the panel and the settings form are separate components that must agree on the same
@@ -19,9 +20,27 @@ export interface VpsSettings {
   url: string;
   /** The BEARER_TOKEN install.sh printed. */
   token: string;
+  /** The homelab's SSH host, an alias from ~/.ssh/config such as "homelab". "" means none. */
+  homelab: string;
+  /**
+   * Each footer readout: shown or not, its text ("" = the host's own name), the icon alone, and
+   * its colour while reachable as a CSS colour ("" = Deck's green; unreachable is always grey).
+   */
+  showVps: boolean;
+  vpsLabel: string;
+  vpsIconOnly: boolean;
+  vpsColor: string;
+  showHomelab: boolean;
+  homelabLabel: string;
+  homelabIconOnly: boolean;
+  homelabColor: string;
 }
 
-export const DEFAULTS: VpsSettings = { url: "", token: "" };
+export const DEFAULTS: VpsSettings = {
+  url: "", token: "", homelab: "",
+  showVps: true, vpsLabel: "", vpsIconOnly: false, vpsColor: "",
+  showHomelab: true, homelabLabel: "", homelabIconOnly: false, homelabColor: "",
+};
 
 let settings: VpsSettings = { ...DEFAULTS };
 let loaded = false;
@@ -46,19 +65,32 @@ export async function load(): Promise<void> {
       // Field by field rather than a blind spread: a hand-edited file should not be able to put
       // a number where a string belongs and fail somewhere far from the cause.
       const raw = JSON.parse(t) as Partial<VpsSettings>;
-      settings = {
-        url: typeof raw.url === "string" ? raw.url : DEFAULTS.url,
-        token: typeof raw.token === "string" ? raw.token : DEFAULTS.token,
-      };
+      settings = { ...DEFAULTS };
+      for (const k of Object.keys(DEFAULTS) as (keyof VpsSettings)[]) {
+        if (typeof raw[k] === typeof DEFAULTS[k]) (settings as any)[k] = raw[k];
+      }
     }
   } catch { /* a corrupt file is not worth failing the readout for */ }
+  saved = JSON.stringify(settings, null, 2);
   emit();
 }
 
-export async function update(patch: Partial<VpsSettings>): Promise<void> {
+// The last text written, and the pending write. Every keystroke in a label and every step of a
+// colour drag lands here, and each write wakes Deck's config listeners, so the save waits for a
+// pause and is skipped when nothing changed.
+let saved = "";
+let saveTimer: ReturnType<typeof setTimeout> | undefined;
+
+export function update(patch: Partial<VpsSettings>): void {
   settings = { ...settings, ...patch };
   emit();
-  await configWrite(CFG, JSON.stringify(settings, null, 2)).catch((e) => console.warn("[vps] settings save failed", e));
+  clearTimeout(saveTimer);
+  saveTimer = setTimeout(() => {
+    const text = JSON.stringify(settings, null, 2);
+    if (text === saved) return;
+    saved = text;
+    configWrite(CFG, text).catch((e) => console.warn("[vps] settings save failed", e));
+  }, 400);
 }
 
 /**
@@ -94,6 +126,19 @@ export interface VpsHost {
 export interface VpsContainer { name: string; state: string; status: string; cpu: string; mem: string; }
 export interface VpsStatus { host: VpsHost; containers: VpsContainer[]; }
 
+/** What only the homelab reports: it is a laptop on Wi-Fi, so its power and signal matter. */
+export interface HomelabExtra {
+  /** Mains connected; null when the machine has no mains supply to report. */
+  ac: boolean | null;
+  /** Charge in percent and the kernel's status ("Charging", "Discharging"); null with no battery. */
+  battery: { pct: number; state: string } | null;
+  /** battery-guard.timer's state, from systemctl is-active ("active", "inactive", ...). */
+  guard: string;
+  /** The wireless interface and its signal in dBm; null when it is not on Wi-Fi. */
+  wifi: { iface: string; dbm: number } | null;
+}
+export type HostStatus = VpsStatus & { extra?: HomelabExtra };
+
 /** One call to the backend. Throws with the status line on anything but 2xx. */
 async function call(
   method: string, path: string, body?: string,
@@ -110,11 +155,11 @@ async function call(
   return r.body;
 }
 
-/** Host stats + the container list, as raw JSON (the caller parses and caches it). */
+/** Host stats + the container list. */
 // The watch is a side effect: whatever goes wrong in it is logged, never a failed status call.
 export const vpsStatus = () => call("GET", "/status").then((raw) => {
   try { watchContainers(raw); } catch (e) { console.warn("[vps] container watch failed", e); }
-  return raw;
+  return JSON.parse(raw) as HostStatus;
 });
 
 // Containers seen up on the last status read, by name; null until the first read, which is the
@@ -153,3 +198,17 @@ export const vpsAction = (name: string, action: "start" | "stop" | "restart") =>
 
 export const vpsLogs = (name: string) =>
   call("GET", `/logs?name=${encodeURIComponent(name)}&tail=200`).catch((e) => String(e));
+
+/** The Caddy access log over the last 24h, with Deck's own polling left out. */
+export interface AccessSite { host: string; total: number; s4xx: number; s5xx: number; }
+export interface AccessError { ts: number; host: string; status: number; method: string; uri: string; ip: string; ms: number; }
+export interface AccessSummary {
+  /** Unix seconds the numbers start from: 24h ago, or later when the log was rotated since. */
+  since: number;
+  sites: AccessSite[];
+  /** Newest first, at most 100. */
+  errors: AccessError[];
+}
+
+// Not on the panel's 5s poll: the server reads and parses the whole log file for each call.
+export const vpsAccess = () => call("GET", "/access").then((raw) => JSON.parse(raw) as AccessSummary);
