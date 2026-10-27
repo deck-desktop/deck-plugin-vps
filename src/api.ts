@@ -198,3 +198,17 @@ export const vpsAction = (name: string, action: "start" | "stop" | "restart") =>
 
 export const vpsLogs = (name: string) =>
   call("GET", `/logs?name=${encodeURIComponent(name)}&tail=200`).catch((e) => String(e));
+
+/** The Caddy access log over the last 24h, with Deck's own polling left out. */
+export interface AccessSite { host: string; total: number; s4xx: number; s5xx: number; }
+export interface AccessError { ts: number; host: string; status: number; method: string; uri: string; ip: string; ms: number; }
+export interface AccessSummary {
+  /** Unix seconds the numbers start from: 24h ago, or later when the log was rotated since. */
+  since: number;
+  sites: AccessSite[];
+  /** Newest first, at most 100. */
+  errors: AccessError[];
+}
+
+// Not on the panel's 5s poll: the server reads and parses the whole log file for each call.
+export const vpsAccess = () => call("GET", "/access").then((raw) => JSON.parse(raw) as AccessSummary);

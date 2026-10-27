@@ -131,14 +131,14 @@ function VpsOverlay({ open, onClose }: { open: SourceId | null; onClose: () => v
         <motion.div
           // Blurred rather than only dimmed: the panel sits over a dense grid of terminals and
           // tables, and a wash alone leaves all of it legible enough to keep competing for the eye.
-          className="fixed inset-0 z-[140] flex items-center justify-center bg-black/50 p-8 backdrop-blur-md"
+          className="fixed inset-0 z-[140] flex items-center justify-center bg-black/50 p-4 backdrop-blur-md"
           initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
           onClick={close}
         >
           <motion.div
             // A fixed height rather than sizing to content: the panel's own root is h-full with
             // its own scrolling container list, so it needs a parent with a height to fill.
-            className="relative flex h-[min(52rem,100%)] w-[min(80rem,94vw)] flex-col overflow-hidden rounded-[10px] border border-subtle shadow-2xl"
+            className="relative flex h-[min(64rem,100%)] w-[min(100rem,96vw)] flex-col overflow-hidden rounded-[10px] border border-subtle shadow-2xl"
             style={{ background: "var(--bg-card)" }}
             initial={{ scale: 0.96, opacity: 0, y: 10 }}
             animate={{ scale: 1, opacity: 1, y: 0 }}

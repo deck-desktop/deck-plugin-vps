@@ -12,6 +12,7 @@ import {
 import { ConfirmDialog, type ConfirmState } from "../shim/ui.js";
 import { configured, get, vpsStatus, vpsAction, vpsLogs, type HostStatus, type VpsContainer } from "./api";
 import { homelabStatus, homelabAction, homelabLogs } from "./homelab";
+import AccessCard from "./AccessCard";
 
 const POLL_MS = 5000;
 
@@ -271,6 +272,8 @@ function HostPanel({ source, tabs }: { source: Source; tabs: React.ReactNode }) 
               onAction={onAction} onLogs={openLogs} />)}
           </div>
         </div>
+
+        {source.id === "vps" && <AccessCard />}
       </div>
 
       {/* Confirm dialog for stop/restart (production actions) */}

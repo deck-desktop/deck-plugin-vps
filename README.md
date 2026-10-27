@@ -5,7 +5,10 @@ Host stats and container control for your own VPS and homelab, as footer readout
 
 Click the VPS readout in the footer (or run **Servers: open the panel** from the command palette)
 to see CPU, memory, disk, uptime and network rate, plus every container with start/stop/restart
-and a log tail. Stop and restart ask first — these are production actions.
+and a log tail. Stop and restart ask first — these are production actions. Below the containers,
+**Web traffic** shows requests, 4xx and 5xx per site from Caddy's access log over the last 24h,
+and the newest error requests. It loads when the panel opens and on its refresh button, not on
+the 5s poll.
 
 ## The homelab
 
@@ -19,7 +22,7 @@ Losing mains power posts a notification, and mains coming back takes it down.
 ## It needs a server half
 
 Unlike every other plugin here, this one talks to something you deploy. `server/` holds it: a
-small Rust/Axum service that sits behind Caddy on your VPS and proxies three routes to a
+small Rust/Axum service that sits behind Caddy on your VPS and proxies four routes to a
 localhost host helper that can actually run docker.
 
 ```
@@ -27,6 +30,7 @@ GET  /health    unauthenticated liveness
 GET  /status    host stats + container list
 POST /action    start | stop | restart a container
 GET  /logs      one container's recent log
+GET  /access    Caddy access log: per-site counts and recent errors, 24h
 ```
 
 Everything but `/health` is bearer-guarded. The container has no docker socket on purpose — the
